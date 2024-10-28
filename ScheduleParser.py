@@ -1,4 +1,4 @@
-from config import USER_LOGIN, USER_PASS, USER_DATA_DIR
+from config import USER_LOGIN, USER_PASS, USER_DATA_DIR, USER_BROWSER_PROFILE
 
 import json
 from datetime import datetime
@@ -59,9 +59,6 @@ class ScheduleParser:
             "user-agent": UserAgent().random
             }
 
-        # Путь к директории профиля браузера Chrome, берётся из config.py.
-        profile_directory: str = USER_DATA_DIR.split("\\")[-1]
-
         # -------------------- Настройки Chrome Webdriver -------------------- #
 
         self.options = ChromeOptions()
@@ -73,7 +70,7 @@ class ScheduleParser:
         self.options.add_argument("--start-maximized")
 
         # Название директории профиля браузера Chrome.
-        self.options.add_argument(f"--profile-directory={profile_directory}")
+        self.options.add_argument(f"--profile-directory={USER_BROWSER_PROFILE}")
 
         # ЗАПОЛНИТЬ
         self.options.add_argument("--disable-blink-features=AutomationControlled")
