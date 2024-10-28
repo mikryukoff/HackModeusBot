@@ -12,6 +12,8 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver import ChromeOptions
 
+from selenium.common.exceptions import TimeoutException
+
 from bs4 import BeautifulSoup
 import lxml
 
@@ -80,6 +82,10 @@ class ScheduleParser:
 
         # Отключение использования GPU.
         self.options.add_argument("--disable-gpu")
+
+        self.options.add_argument("--no-sandbox")
+
+        # self.options.add_argument('--disable-dev-shm-usage')
 
         # -------------------- Конец блока настроек Chrome Webdriver -------------------- #
 
@@ -211,13 +217,16 @@ class ScheduleParser:
         self.browser = webdriver.Chrome(options=self.options)
         self.browser.get(self.url)
 
-        WebDriverWait(self.browser, 10).until(
-            EC.visibility_of_any_elements_located((By.ID, "userNameInput"))
-        )
+        try:
+            WebDriverWait(self.browser, 10).until(
+                EC.visibility_of_any_elements_located((By.ID, "userNameInput"))
+            )
 
-        self.browser.find_element(By.ID, "userNameInput").send_keys(self.__login)
-        self.browser.find_element(By.ID, "passwordInput").send_keys(self.__password)
-        self.browser.find_element(By.ID, "submitButton").click()
+            self.browser.find_element(By.ID, "userNameInput").send_keys(self.__login)
+            self.browser.find_element(By.ID, "passwordInput").send_keys(self.__password)
+            self.browser.find_element(By.ID, "submitButton").click()
+        except TimeoutException:
+            pass
 
         WebDriverWait(self.browser, 10).until(
             EC.visibility_of_any_elements_located((By.CSS_SELECTOR, ".fc-title"))
@@ -264,3 +273,9 @@ class ScheduleParser:
 
     def __save_user_data(self, login: str, password: str) -> None:
         pass
+
+    def __str__(self):
+        return f"ScheduleParser({self.user_name})"
+
+    def __repr__(self):
+        return f"ScheduleParser({self.user_name})"

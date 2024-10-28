@@ -14,7 +14,8 @@ from aiogram.types import Message
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
-schedule_parser = None
+
+users_chat_id: dict = {}
 
 
 # Команда "/start"
@@ -23,19 +24,24 @@ async def process_start_command(message: Message):
     await message.answer("Привет!\nМеня зовут ScheduleBot!\nЯ могу отправить расписание!")
     await message.answer("Для работы со мной, введите, пожалуйста, ваше ФИО\nНапример: Иванов Иван Иванович")
 
+    global users_chat_id
+    users_chat_id.setdefault(message.chat.id, tuple())
+
 
 # Меню "Расписание"
 @dp.message(F.text == "📅 Расписание")
 async def send_schedule(message: Message):
+    global users_chat_id
+
     msg = await message.answer("Обрабатываю запрос...")
-    global schedule_parser
+    current_user_name = users_chat_id[message.chat.id][0]
 
     try:
-        schedule_parser.save_week_schedule()
+        users_chat_id[message.chat.id][1].save_week_schedule()
     except ScheduleException:
         sleep(1)
 
-    schedule = get_schedule_text()
+    schedule = get_schedule_text(current_user_name)
 
     await msg.edit_text(schedule[0])
     del schedule[0]
@@ -43,26 +49,17 @@ async def send_schedule(message: Message):
     for text in schedule:
         await message.answer(text)
 
-
-# Команда "/schedule"
-@dp.message(Command(commands=["schedule"]))
-async def process_help_command(message: Message):
-    msg = await message.answer("Обрабатываю запрос...")
-    try:
-        schedule_parser.save_week_schedule()
-    except ScheduleException:
-        sleep(1)
-
-    await msg.edit_text("Высылаю Вам расписание!")
-
-    for text in get_schedule_text():
-        await message.answer(text)
+    print(users_chat_id)
 
 
 # Авторизация по ФИО
 @dp.message()
 async def autorization(message: Message):
-    global schedule_parser
+    global users_chat_id
+
+    if users_chat_id[message.chat.id]:
+        await message.answer(f"Вы уже подключены под именем: {users_chat_id[message.chat.id][0]}")
+        return
 
     if not re.fullmatch(r"[А-ЯЁа-яё]+/s[А-ЯЁа-яё]+/s[А-ЯЁа-яё]+", message.text):
         '''
@@ -74,21 +71,16 @@ async def autorization(message: Message):
 
     if len(message.text.split()) != 3 or len(message.text) > 100 or any(map(lambda x: x in string.ascii_letters, message.text)):
         await message.answer("Некорректное ФИО!")
-
-    elif schedule_parser:
-        await message.answer(f"Вы уже подключены под именем: {schedule_parser.user_name}")
-
     else:
         await message.answer("Подключаю ваше расписание...")
-        if not schedule_parser:
-            schedule_parser = ScheduleParser(message.text)
+        users_chat_id[message.chat.id] = (message.text, ScheduleParser(message.text))
         await message.answer("Подключение прошло успешно!", reply_markup=kb.StartMenu)
 
 
-def get_schedule_text() -> list:
+def get_schedule_text(current_user_name: str) -> list:
     with open("schedule.json", mode="rb") as json_file:
         schedule = json.load(json_file)
-        schedule = schedule[schedule_parser.user_name]
+        schedule = schedule[current_user_name]
 
         schedule_iter = []
 
