@@ -37,7 +37,7 @@ async def send_schedule(message: Message):
     current_user_name = users_chat_id[message.chat.id][0]
 
     try:
-        users_chat_id[message.chat.id][1].save_week_schedule()
+        await users_chat_id[message.chat.id][1].save_week_schedule()
     except ScheduleException:
         sleep(1)
 
@@ -73,7 +73,7 @@ async def autorization(message: Message):
         await message.answer("Некорректное ФИО!")
     else:
         await message.answer("Подключаю ваше расписание...")
-        users_chat_id[message.chat.id] = (message.text, ScheduleParser(message.text))
+        users_chat_id[message.chat.id] = (message.text, await ScheduleParser(message.text).create_driver())
         await message.answer("Подключение прошло успешно!", reply_markup=kb.StartMenu)
 
 

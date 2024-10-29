@@ -12,6 +12,8 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver import ChromeOptions
 
+import asyncio
+
 from selenium.common.exceptions import TimeoutException
 
 from bs4 import BeautifulSoup
@@ -40,58 +42,13 @@ class ScheduleParser:
     # Дата для получения расписания в определенный день.
     date: datetime = None
 
+    # URL страницы с расписанием.
+    url: str = 'https://urfu.modeus.org/schedule-calendar'
+
     # Логин и пароль, по которым идёт авторизация в Modeus.
     # Используются данные из файла config.py.
     __login: str = USER_LOGIN
     __password: str = USER_PASS
-
-    def __post_init__(self) -> None:
-        # self.params = {
-        #     "calendar": f'%7B"view":"agendaWeek","date":"{date}"%7D',
-        #     "timeZone": r"Asia%2FYekaterinburg",
-        #     "grid": "Grid.07",
-        #     "selectedEvent": ""
-        # }
-
-        # URL страницы с расписанием.
-        self.url = 'https://urfu.modeus.org/schedule-calendar'
-
-        # Заголовки запроса.
-        self.headers = {
-            "user-agent": UserAgent().random
-            }
-
-        # -------------------- Настройки Chrome Webdriver -------------------- #
-
-        self.options = ChromeOptions()
-
-        # Путь к директории профиля браузера Chrome.
-        self.options.add_argument(f"user-data-dir={USER_DATA_DIR}")
-
-        # Запуск браузера в полноэкранном режиме.
-        self.options.add_argument("--start-maximized")
-
-        # Название директории профиля браузера Chrome.
-        self.options.add_argument(f"--profile-directory={USER_BROWSER_PROFILE}")
-
-        # ЗАПОЛНИТЬ
-        self.options.add_argument("--disable-blink-features=AutomationControlled")
-
-        # Запуск браузера без графической оболочки.
-        self.options.add_argument("--headless")
-
-        # Отключение использования GPU.
-        self.options.add_argument("--disable-gpu")
-
-        self.options.add_argument("--no-sandbox")
-
-        # self.options.add_argument('--disable-dev-shm-usage')
-
-        # -------------------- Конец блока настроек Chrome Webdriver -------------------- #
-
-        # Авторизируемся на сайте Modeus, если регистрации ещё не было.
-        if not self.__page_user_name:
-            self.__autorization()
 
     def get_soup(self, page_source: str) -> BeautifulSoup:
         '''
@@ -106,15 +63,15 @@ class ScheduleParser:
 
         return BeautifulSoup(page_source, "lxml")
 
-    def save_next_week_schedule(self) -> None:
+    async def save_next_week_schedule(self) -> None:
         '''
         Используется, если требуется получить расписание на следующую неделю.
         Вызывает метод ScheduleParser.save_week_schedule() с аргументом next_week=True.
         '''
 
-        self.save_week_schedule(next_week=True)
+        await self.save_week_schedule(next_week=True)
 
-    def save_week_schedule(self, next_week: bool = False) -> None:
+    async def save_week_schedule(self, next_week: bool = False) -> None:
         '''
         Сохраняет в файл schedule.json расписание на неделю,
         если расписание на эту неделю ранее не сохранялось, в формате:
@@ -136,11 +93,15 @@ class ScheduleParser:
             Если True, сохраняет расписание на следующую неделю, False - на текущую.
         '''
 
+        # Авторизируемся на сайте Modeus, если регистрации ещё не было.
+        if not self.__page_user_name:
+            await self.__autorization()
+
         # Проверка, что в файле schedule.json не сохранено расписание на требуемую неделю.
         self._check_saved_file()
 
         if next_week:
-            self._change_to_next_week()
+            await self._change_to_next_week()
 
         soup = self.get_soup(self.browser.page_source)
 
@@ -154,8 +115,8 @@ class ScheduleParser:
                 full_schedule.setdefault(self.user_name, {}).setdefault(day, self.get_day_schedule(soup=soup, day_num=days.index(day)))
             json.dump(full_schedule, json_file, ensure_ascii=False)
 
-        # self.browser.close()
-        # self.browser.quit()
+        self.browser.close()
+        self.browser.quit()
 
     def get_day_schedule(self, soup: BeautifulSoup, day_num: int) -> dict:
         '''
@@ -213,8 +174,42 @@ class ScheduleParser:
             json.dump(webdriver.get_cookies(), cookies_file)
     '''
 
-    def __autorization(self) -> None:
-        self.browser = webdriver.Chrome(options=self.options)
+    async def create_driver(self):
+
+        # -------------------- Настройки Chrome Webdriver -------------------- #
+
+        options = ChromeOptions()
+
+        # Путь к директории профиля браузера Chrome.
+        options.add_argument(f"user-data-dir={USER_DATA_DIR}")
+
+        # Запуск браузера в полноэкранном режиме.
+        options.add_argument("--start-maximized")
+
+        # Название директории профиля браузера Chrome.
+        options.add_argument(f"--profile-directory={USER_BROWSER_PROFILE}")
+
+        # ЗАПОЛНИТЬ
+        options.add_argument("--disable-blink-features=AutomationControlled")
+
+        # Запуск браузера без графической оболочки.
+        options.add_argument("--headless")
+
+        # Отключение использования GPU.
+        options.add_argument("--disable-gpu")
+
+        options.add_argument("--no-sandbox")
+
+        options.add_argument(f'--user-agent={UserAgent().random}')
+
+        # options.add_argument('--disable-dev-shm-usage')
+
+        # -------------------- Конец блока настроек Chrome Webdriver -------------------- #
+        self.browser = webdriver.Chrome(options=options)
+
+        return self
+
+    async def __autorization(self) -> None:
         self.browser.get(self.url)
 
         try:
@@ -235,9 +230,9 @@ class ScheduleParser:
         self.__page_user_name = self.browser.find_element(By.CSS_SELECTOR, ".user-name.user-full-name.user-visible-name").text
 
         if self.__page_user_name != self.user_name:
-            self._change_user()
+            await self._change_user()
 
-    def _change_user(self):
+    async def _change_user(self):
         self.browser.find_element(By.CSS_SELECTOR, ".btn-filter.screen-only").click()
         self.browser.find_element(By.CSS_SELECTOR, ".clear").click()
         self.browser.find_elements(By.CSS_SELECTOR, ".p-multiselected-empty.ng-star-inserted")[6].click()
@@ -254,7 +249,7 @@ class ScheduleParser:
             EC.visibility_of_any_elements_located((By.CSS_SELECTOR, ".fc-title"))
         )
 
-    def _change_to_next_week(self) -> None:
+    async def _change_to_next_week(self) -> None:
         self.browser.find_element(By.XPATH, "//span[@class='fc-icon fc-icon-right-single-arrow']").click()
         self.browser.refresh()
 
