@@ -108,12 +108,17 @@ class ScheduleParser:
         # Даты дней недели.
         days = self.get_days(soup=soup)
 
+        try:
+            with open("schedule.json", "r", encoding="utf-8") as json_file:
+                schedule = json.load(json_file)
+        except FileNotFoundError:
+            schedule = {}
+
         # Записываем в файл schedule.json расписание.
-        full_schedule: dict = {}
-        with open("schedule.json", "w", encoding="utf-8") as json_file:
+        with open("schedule.json", "w+", encoding="utf-8") as json_file:
             for day in days:
-                full_schedule.setdefault(self.user_name, {}).setdefault(day, self.get_day_schedule(soup=soup, day_num=days.index(day)))
-            json.dump(full_schedule, json_file, ensure_ascii=False)
+                schedule.setdefault(self.user_name, {}).setdefault(day, self.get_day_schedule(soup=soup, day_num=days.index(day)))
+            json.dump(schedule, json_file, ensure_ascii=False, indent=2)
 
         self.browser.close()
         self.browser.quit()
@@ -261,7 +266,7 @@ class ScheduleParser:
         try:
             with open("schedule.json", "r", encoding="utf-8") as json_file:
                 schedule = json.load(json_file)
-                if self.date in schedule:
+                if self.user_name in schedule:
                     raise ScheduleException
         except FileNotFoundError:
             return
