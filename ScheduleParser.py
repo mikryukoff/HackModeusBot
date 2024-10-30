@@ -5,7 +5,6 @@ from datetime import datetime
 from itertools import zip_longest
 from dataclasses import dataclass
 from time import sleep
-# import hashlib
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -25,8 +24,18 @@ import lxml
 from fake_useragent import UserAgent
 
 
+class NoSuchStudentFound(TimeoutException):
+    def __str__(self):
+        return f"Student: {self.msg} not found."
+
+
+class AlreadyAuthorisedException(TimeoutException):
+    def __str__(self):
+        return "User is already authorised."
+
+
 class NoDataException(Exception):
-    text = "Нет данных"
+    text = "Нет данных."
 
 
 class ScheduleException(Exception):
@@ -134,7 +143,7 @@ class ScheduleParser:
 
         # Авторизируемся на сайте Modeus, если регистрации ещё не было.
         if not self.__page_user_name:
-            await self.__autorization()
+            await self.__authorisation()
 
         if next_week:
             await self._change_to_next_week()
@@ -243,7 +252,7 @@ class ScheduleParser:
 
         options.add_argument('--disable-dev-shm-usage')
 
-        options.binary_location = "C:\Program Files\Google\Chrome\Application\chrome.exe"
+        options.binary_location = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
 
         # -------------------- Конец блока настроек Chrome Webdriver -------------------- #
         try:
@@ -254,7 +263,7 @@ class ScheduleParser:
 
         return self
 
-    async def __autorization(self) -> None:
+    async def __authorisation(self) -> None:
         self.browser.get(self.url)
 
         try:
@@ -265,8 +274,8 @@ class ScheduleParser:
             self.browser.find_element(By.ID, "userNameInput").send_keys(self.__login)
             self.browser.find_element(By.ID, "passwordInput").send_keys(self.__password)
             self.browser.find_element(By.ID, "submitButton").click()
-        except TimeoutException:
-            self.save_cookies(webdriver=self.browser)
+        except AlreadyAuthorisedException:
+            pass
 
         WebDriverWait(self.browser, 10).until(
             EC.visibility_of_any_elements_located((By.CSS_SELECTOR, ".fc-title"))
@@ -317,7 +326,7 @@ class ScheduleParser:
         pass
 
     def __str__(self):
-        return f"ScheduleParser({self.__page_user_name})"
+        return f"ScheduleParser({self.user_name})"
 
     def __repr__(self):
-        return f"ScheduleParser({self.__page_user_name})"
+        return f"ScheduleParser({self.user_name})"

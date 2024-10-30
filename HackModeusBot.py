@@ -1,5 +1,5 @@
 from config import BOT_TOKEN
-from ScheduleParser import ScheduleParser, ScheduleException
+from ScheduleParser import ScheduleParser
 import keyboards as kb
 
 from time import sleep
@@ -34,7 +34,6 @@ async def send_schedule(message: Message):
     global users_chat_id
 
     msg = await message.answer("Обрабатываю запрос...")
-    # current_user_name = users_chat_id[message.chat.id][0]
 
     schedule = await users_chat_id[message.chat.id][1].week_schedule
 
@@ -47,7 +46,7 @@ async def send_schedule(message: Message):
 
 # Авторизация по ФИО
 @dp.message()
-async def autorization(message: Message):
+async def authorisation(message: Message):
     global users_chat_id
 
     if users_chat_id[message.chat.id]:
@@ -62,7 +61,7 @@ async def autorization(message: Message):
         '''
         pass
 
-    if len(message.text.split()) != 3 or len(message.text) > 100 or any(map(lambda x: x in string.ascii_letters, message.text)):
+    if len(message.text.split()) < 3 or len(message.text) > 100 or any(map(lambda x: x in string.ascii_letters, message.text)):
         await message.answer("Некорректное ФИО!")
     else:
         await message.answer("Подключаю ваше расписание...")
