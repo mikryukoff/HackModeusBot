@@ -34,22 +34,15 @@ async def send_schedule(message: Message):
     global users_chat_id
 
     msg = await message.answer("Обрабатываю запрос...")
-    current_user_name = users_chat_id[message.chat.id][0]
+    # current_user_name = users_chat_id[message.chat.id][0]
 
-    try:
-        await users_chat_id[message.chat.id][1].save_week_schedule()
-    except ScheduleException:
-        sleep(1)
-
-    schedule = get_schedule_text(current_user_name)
+    schedule = await users_chat_id[message.chat.id][1].week_schedule
 
     await msg.edit_text(schedule[0])
     del schedule[0]
 
     for text in schedule:
         await message.answer(text)
-
-    print(users_chat_id)
 
 
 # Авторизация по ФИО
@@ -73,32 +66,8 @@ async def autorization(message: Message):
         await message.answer("Некорректное ФИО!")
     else:
         await message.answer("Подключаю ваше расписание...")
-        users_chat_id[message.chat.id] = (message.text, await ScheduleParser(message.text).create_driver())
+        users_chat_id[message.chat.id] = (message.text, await ScheduleParser(message.text).driver)
         await message.answer("Подключение прошло успешно!", reply_markup=kb.StartMenu)
-
-
-def get_schedule_text(current_user_name: str) -> list:
-    with open("schedule.json", mode="rb") as json_file:
-        schedule = json.load(json_file)
-        schedule = schedule[current_user_name]
-
-        schedule_iter = []
-
-        for day in schedule:
-            if not schedule[day]:
-                continue
-
-            text = f"{day}:\n\n"
-
-            for time, lesson_name in schedule[day].items():
-                if not lesson_name:
-                    continue
-
-                text += f"{time}:\n{lesson_name[0]}\n{lesson_name[1]}\n\n"
-
-            schedule_iter.append(text)
-
-    return schedule_iter
 
 
 if __name__ == "__main__":

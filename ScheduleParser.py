@@ -4,6 +4,7 @@ import json
 from datetime import datetime
 from itertools import zip_longest
 from dataclasses import dataclass
+from time import sleep
 # import hashlib
 
 from selenium import webdriver
@@ -13,8 +14,10 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver import ChromeOptions
 
 import asyncio
+from async_property import async_property
 
 from selenium.common.exceptions import TimeoutException
+from selenium.common.exceptions import SessionNotCreatedException
 
 from bs4 import BeautifulSoup
 import lxml
@@ -50,7 +53,8 @@ class ScheduleParser:
     __login: str = USER_LOGIN
     __password: str = USER_PASS
 
-    def get_soup(self, page_source: str) -> BeautifulSoup:
+    @property
+    def soup(self) -> BeautifulSoup:
         '''
         Принимает код страницы и возвращает объект BeautifulSoup.
 
@@ -61,15 +65,50 @@ class ScheduleParser:
             BeautifulSoup - объект BeautifulSoup.
         '''
 
-        return BeautifulSoup(page_source, "lxml")
+        return BeautifulSoup(self.page_source, "lxml")
 
-    async def save_next_week_schedule(self) -> None:
+    @async_property
+    async def next_week_schedule(self) -> None:
         '''
         Используется, если требуется получить расписание на следующую неделю.
         Вызывает метод ScheduleParser.save_week_schedule() с аргументом next_week=True.
         '''
 
-        await self.save_week_schedule(next_week=True)
+        await self.week_schedule(next_week=True)
+
+    @async_property
+    async def week_schedule(self, next_week=False):
+        '''
+        BLANK
+        '''
+        if not self._check_saved_file():
+            await self.save_week_schedule(next_week=next_week)
+
+        with open("schedule.json", mode="rb") as json_file:
+            schedule = json.load(json_file)
+            schedule = schedule[self.user_name]
+
+            schedule_iter = []
+
+            for day in schedule:
+                if not schedule[day]:
+                    continue
+
+                text = f"{day}:\n\n"
+
+                for time, lesson_name in schedule[day].items():
+                    if not lesson_name:
+                        continue
+
+                    text += f"{time}:\n{lesson_name[0]}\n{lesson_name[1]}\n\n"
+
+                schedule_iter.append(text)
+
+        self.browser.close()
+        self.browser.quit()
+        print(f"browser closed {self.user_name}")
+
+        return schedule_iter
 
     async def save_week_schedule(self, next_week: bool = False) -> None:
         '''
@@ -97,33 +136,24 @@ class ScheduleParser:
         if not self.__page_user_name:
             await self.__autorization()
 
-        # Проверка, что в файле schedule.json не сохранено расписание на требуемую неделю.
-        self._check_saved_file()
-
         if next_week:
             await self._change_to_next_week()
 
-        soup = self.get_soup(self.browser.page_source)
-
-        # Даты дней недели.
-        days = self.get_days(soup=soup)
-
-        try:
-            with open("schedule.json", "r", encoding="utf-8") as json_file:
-                schedule = json.load(json_file)
-        except FileNotFoundError:
-            schedule = {}
+        with open("schedule.json", mode="r", encoding="utf-8") as json_file:
+            schedule = json.load(json_file)
 
         # Записываем в файл schedule.json расписание.
-        with open("schedule.json", "w+", encoding="utf-8") as json_file:
-            for day in days:
-                schedule.setdefault(self.user_name, {}).setdefault(day, self.get_day_schedule(soup=soup, day_num=days.index(day)))
+        with open("schedule.json", mode="w", encoding="utf-8") as json_file:
+            week_days = self.week_days
+            schedule_cols = self.soup.select(".fc-content-col")
+
+            for day in week_days:
+                day_schedule = self.get_day_schedule(day_num=week_days.index(day), schedule_cols=schedule_cols)
+                schedule.setdefault(self.user_name, {}).setdefault(day, day_schedule)
+
             json.dump(schedule, json_file, ensure_ascii=False, indent=2)
 
-        self.browser.close()
-        self.browser.quit()
-
-    def get_day_schedule(self, soup: BeautifulSoup, day_num: int) -> dict:
+    def get_day_schedule(self, schedule_cols: list, day_num: int) -> dict:
         '''
         По номеру дня недели возвращает полное расписание на день
         в виде словаря:
@@ -143,20 +173,25 @@ class ScheduleParser:
         '''
 
         # Колонка с расписанием на день.
-        day = soup.select(".fc-content-col")[day_num]
+        day_col = schedule_cols[day_num]
+
+        subjects = day_col.select(".fc-title")
+        classrooms = day_col.select("small")
+        subjects_time = day_col.select(".fc-time span")
 
         # Если каких-то данных не достаёт, заполняем значением NoDataException,
         # то есть строкой "нет данных".
         day_schedule: dict = {}
         for subject, classroom, time in zip_longest(
-            day.select(".fc-title"), day.select("small"), day.select(".fc-time span"),
+            subjects, classrooms, subjects_time,
             fillvalue=NoDataException
         ):
             day_schedule.setdefault(time.text.zfill(13), (subject.text, classroom.text))
 
         return day_schedule
 
-    def get_days(self, soup: BeautifulSoup) -> list:
+    @property
+    def week_days(self) -> list:
         '''
         Возвращает список с названиями дней, указанных на странице.
 
@@ -166,9 +201,8 @@ class ScheduleParser:
             Список с названиями дней.
         '''
 
-        return [day.text for day in soup.select(".fc-day-header span")]
+        return [day.text for day in self.soup.select(".fc-day-header span")]
 
-    '''
     def load_cookies(self, webdriver: webdriver.Chrome) -> None:
         with open(file="cookies.json", mode="r", encoding="utf-8") as cookies_file:
             for cookie in json.load(cookies_file):
@@ -177,16 +211,16 @@ class ScheduleParser:
     def save_cookies(self, webdriver: webdriver.Chrome) -> None:
         with open(file="cookies.json", mode="w", encoding="utf-8") as cookies_file:
             json.dump(webdriver.get_cookies(), cookies_file)
-    '''
 
-    async def create_driver(self):
+    @async_property
+    async def driver(self):
 
         # -------------------- Настройки Chrome Webdriver -------------------- #
 
         options = ChromeOptions()
 
         # Путь к директории профиля браузера Chrome.
-        options.add_argument(f"user-data-dir={USER_DATA_DIR}")
+        options.add_argument(r"{USER_DATA_DIR}")
 
         # Запуск браузера в полноэкранном режиме.
         options.add_argument("--start-maximized")
@@ -207,10 +241,16 @@ class ScheduleParser:
 
         options.add_argument(f'--user-agent={UserAgent().random}')
 
-        # options.add_argument('--disable-dev-shm-usage')
+        options.add_argument('--disable-dev-shm-usage')
+
+        options.binary_location = "C:\Program Files\Google\Chrome\Application\chrome.exe"
 
         # -------------------- Конец блока настроек Chrome Webdriver -------------------- #
-        self.browser = webdriver.Chrome(options=options)
+        try:
+            self.browser = webdriver.Chrome(options=options)
+        except SessionNotCreatedException:
+            sleep(1)
+            self.browser = webdriver.Chrome(options=options)
 
         return self
 
@@ -226,7 +266,7 @@ class ScheduleParser:
             self.browser.find_element(By.ID, "passwordInput").send_keys(self.__password)
             self.browser.find_element(By.ID, "submitButton").click()
         except TimeoutException:
-            pass
+            self.save_cookies(webdriver=self.browser)
 
         WebDriverWait(self.browser, 10).until(
             EC.visibility_of_any_elements_located((By.CSS_SELECTOR, ".fc-title"))
@@ -235,9 +275,11 @@ class ScheduleParser:
         self.__page_user_name = self.browser.find_element(By.CSS_SELECTOR, ".user-name.user-full-name.user-visible-name").text
 
         if self.__page_user_name != self.user_name:
-            await self._change_user()
+            self._change_user()
 
-    async def _change_user(self):
+        self.page_source = self.browser.page_source
+
+    def _change_user(self):
         self.browser.find_element(By.CSS_SELECTOR, ".btn-filter.screen-only").click()
         self.browser.find_element(By.CSS_SELECTOR, ".clear").click()
         self.browser.find_elements(By.CSS_SELECTOR, ".p-multiselected-empty.ng-star-inserted")[6].click()
@@ -249,33 +291,33 @@ class ScheduleParser:
 
         self.browser.find_element(By.XPATH, f"//div[text()='{self.user_name}']").click()
         self.browser.find_element(By.CSS_SELECTOR, ".btn.btn-apply").click()
-
-        WebDriverWait(self.browser, 10).until(
-            EC.visibility_of_any_elements_located((By.CSS_SELECTOR, ".fc-title"))
-        )
+        sleep(1)
 
     async def _change_to_next_week(self) -> None:
         self.browser.find_element(By.XPATH, "//span[@class='fc-icon fc-icon-right-single-arrow']").click()
         self.browser.refresh()
 
         WebDriverWait(self.browser, 10).until(
-            EC.visibility_of_any_elements_located((By.CSS_SELECTOR, ".fc-title"))
+            EC.visibility_of_all_elements_located((By.CSS_SELECTOR, ".fc-title"))
         )
 
-    def _check_saved_file(self) -> None:
+    def _check_saved_file(self) -> bool:
         try:
             with open("schedule.json", "r", encoding="utf-8") as json_file:
                 schedule = json.load(json_file)
                 if self.user_name in schedule:
-                    raise ScheduleException
+                    return True
+                return False
         except FileNotFoundError:
-            return
+            with open("schedule.json", "w", encoding="utf-8") as json_file:
+                json.dump(dict(), json_file, ensure_ascii=False, indent=2)
+                return False
 
     def __save_user_data(self, login: str, password: str) -> None:
         pass
 
     def __str__(self):
-        return f"ScheduleParser({self.user_name})"
+        return f"ScheduleParser({self.__page_user_name})"
 
     def __repr__(self):
-        return f"ScheduleParser({self.user_name})"
+        return f"ScheduleParser({self.__page_user_name})"
